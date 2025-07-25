@@ -2,7 +2,7 @@ import os
 import hashlib
 from PyQt6.QtGui import QPixmap
 
-CACHE_DIR = '.cache'
+CACHE_DIR = os.path.join(os.path.dirname(__file__), '.cache')
 
 def get_cache_path(poster_path):
     """Generate a unique, safe filename for a given poster path."""
