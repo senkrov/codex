@@ -5,13 +5,15 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton,
                              QFileDialog, QScrollArea, QGridLayout, QTabWidget, 
                              QStyle, QStackedWidget, QLabel)
 from PyQt6.QtCore import Qt, QThreadPool
+from PyQt6.QtGui import QPixmap
 from functools import partial
 from scanner import scan_media
 from ui.widgets import MediaCard
 from ui.show_widgets import ShowCard, SeasonCard
+from ui.episode_widgets import EpisodeWidget
 from tmdb import TMDbAPI
 from config import save_media_path, load_media_path
-from worker import CacheCleanupWorker
+from worker import CacheCleanupWorker, WorkerSignals, ImageDownloader, MetadataWorker
 
 def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s['name'])]
@@ -23,11 +25,15 @@ class Codex(QWidget):
         self.movie_cards = []
         self.show_cards = []
         self.season_cards = []
-        self.episode_labels = []
+        self.episode_widgets = []
         self.current_show_index = -1
         self.current_row = 0
         self.current_col = 0
         self.threadpool = QThreadPool()
+        self.pixmap_cache = {}
+        self.worker_signals = WorkerSignals()
+        self.worker_signals.download_finished.connect(self.on_image_downloaded)
+        self.worker_signals.metadata_finished.connect(self.populate_ui)
         self.initUI()
         self.load_initial_media()
 
@@ -77,8 +83,17 @@ class Codex(QWidget):
         # Episode View
         self.episode_view = QWidget()
         self.episode_view_layout = QVBoxLayout(self.episode_view)
-        self.episode_list = QVBoxLayout()
-        self.episode_view_layout.addLayout(self.episode_list)
+        
+        self.episode_scroll_area = QScrollArea()
+        self.episode_scroll_area.setWidgetResizable(True)
+        
+        self.episode_list_container = QWidget()
+        self.episode_list = QVBoxLayout(self.episode_list_container)
+        self.episode_list.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft) # Align items to top-left
+        
+        self.episode_scroll_area.setWidget(self.episode_list_container)
+        self.episode_view_layout.addWidget(self.episode_scroll_area)
+
         back_button_episodes = QPushButton("Back to Seasons")
         back_button_episodes.clicked.connect(self.show_season_view_from_episode)
         self.episode_view_layout.addWidget(back_button_episodes)
@@ -103,19 +118,26 @@ class Codex(QWidget):
             self.scan_and_display_media(media_path)
 
     def scan_and_display_media(self, media_path):
+        movies, self.shows = scan_media(media_path)
+        metadata_worker = MetadataWorker(movies, self.shows, self.worker_signals)
+        self.threadpool.start(metadata_worker)
+
+    def populate_ui(self, movies, shows):
+        self.movies = movies
+        self.shows = shows
+
         for card in self.movie_cards + self.show_cards:
             card.setParent(None)
         self.movie_cards, self.show_cards = [], []
         
-        movies, self.shows = scan_media(media_path)
-        
-        # Cleanup cache in the background
-        cleanup_worker = CacheCleanupWorker(movies, self.shows)
+        cleanup_worker = CacheCleanupWorker(self.movies, self.shows, self.worker_signals)
         self.threadpool.start(cleanup_worker)
 
+        self.preload_images(self.movies, self.shows)
+
         row, col = 0, 0
-        for movie in movies:
-            card = MediaCard(movie['title'], movie['year'], movie.get('poster_path'))
+        for movie in self.movies:
+            card = MediaCard(movie['title'], movie['year'], movie.get('poster_path'), self.pixmap_cache)
             self.movies_layout.addWidget(card, row, col)
             self.movie_cards.append(card)
             col += 1
@@ -123,12 +145,7 @@ class Codex(QWidget):
         
         row, col = 0, 0
         for i, show in enumerate(self.shows):
-            search_results = self.tmdb_api.search_show(show['title'])
-            if search_results and 'results' in search_results and search_results['results']:
-                show['poster_path'] = search_results['results'][0].get('poster_path')
-                show['id'] = search_results['results'][0].get('id')
-            
-            card = ShowCard(show)
+            card = ShowCard(show, self.pixmap_cache)
             card.clicked.connect(partial(self.show_season_view, i))
             self.shows_layout.addWidget(card, row, col)
             self.show_cards.append(card)
@@ -136,6 +153,21 @@ class Codex(QWidget):
             if col > 3: col = 0; row += 1
 
         self.update_selection()
+
+    def preload_images(self, movies, shows):
+        for movie in movies:
+            if movie.get('poster_path'):
+                worker = ImageDownloader(movie['poster_path'], self.worker_signals)
+                self.threadpool.start(worker)
+        for show in shows:
+            if show.get('poster_path'):
+                worker = ImageDownloader(show['poster_path'], self.worker_signals)
+                self.threadpool.start(worker)
+
+    def on_image_downloaded(self, poster_path, image_data):
+        pixmap = QPixmap()
+        pixmap.loadFromData(image_data)
+        self.pixmap_cache[poster_path] = pixmap
 
     def show_season_view(self, show_index):
         self.current_show_index = show_index
@@ -149,7 +181,7 @@ class Codex(QWidget):
         
         row, col = 0, 0
         for i, season in enumerate(sorted_seasons):
-            card = SeasonCard(show.get('id'), season)
+            card = SeasonCard(show.get('id'), season_data=season, pixmap_cache=self.pixmap_cache)
             card.clicked.connect(partial(self.show_episode_view, i))
             self.season_grid.addWidget(card, row, col)
             self.season_cards.append(card)
@@ -164,18 +196,18 @@ class Codex(QWidget):
         self.show_season_view(self.current_show_index)
 
     def show_episode_view(self, season_index):
-        for label in self.episode_labels:
-            label.setParent(None)
-        self.episode_labels = []
+        for widget in self.episode_widgets:
+            widget.setParent(None)
+        self.episode_widgets = []
 
         show = self.shows[self.current_show_index]
         sorted_seasons = sorted(show['seasons'], key=natural_sort_key)
         season = sorted_seasons[season_index]
-
-        for episode in sorted(season['episodes']):
-            label = QLabel(episode)
-            self.episode_list.addWidget(label)
-            self.episode_labels.append(label)
+        
+        for episode_data in season.get('episodes_details', []):
+            widget = EpisodeWidget(episode_data, pixmap_cache=self.pixmap_cache)
+            self.episode_list.addWidget(widget)
+            self.episode_widgets.append(widget)
 
         self.stack.setCurrentWidget(self.episode_view)
 

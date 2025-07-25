@@ -2,27 +2,34 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QBrush, QPainterPath
 from PyQt6.QtCore import Qt, QRectF, QThreadPool
 from cache import get_image_from_cache, save_image_to_cache
-from worker import ImageDownloader
+from worker import ImageDownloader, WorkerSignals
 
 class MediaCard(QWidget):
     """
     A widget to display media information in a card format.
     It will show a poster with title and year overlaid.
     """
-    def __init__(self, title, year, poster_path=None, parent=None):
+    def __init__(self, title, year, poster_path=None, pixmap_cache=None, parent=None):
         super().__init__(parent)
         self.title = title
         self.year = year
         self.poster_path = poster_path
         self.pixmap = None
+        self.pixmap_cache = pixmap_cache if pixmap_cache is not None else {}
         self.threadpool = QThreadPool()
+        self.signals = WorkerSignals()
+        self.signals.download_finished.connect(self.on_download_finished)
         self.set_poster()
 
     def set_poster(self):
-        if self.poster_path:
+        if self.poster_path in self.pixmap_cache:
+            self.pixmap = self.pixmap_cache[self.poster_path]
+            self.update()
+        elif self.poster_path:
             cached_pixmap = get_image_from_cache(self.poster_path)
             if cached_pixmap:
                 self.pixmap = cached_pixmap
+                self.pixmap_cache[self.poster_path] = self.pixmap
                 self.update()
             else:
                 self.set_placeholder()
@@ -31,8 +38,7 @@ class MediaCard(QWidget):
             self.set_placeholder()
 
     def download_poster(self):
-        worker = ImageDownloader(self.poster_path)
-        worker.signals.download_finished.connect(self.on_download_finished)
+        worker = ImageDownloader(self.poster_path, self.signals)
         self.threadpool.start(worker)
 
     def on_download_finished(self, poster_path, image_data):
@@ -40,6 +46,7 @@ class MediaCard(QWidget):
             save_image_to_cache(poster_path, image_data)
             self.pixmap = QPixmap()
             self.pixmap.loadFromData(image_data)
+            self.pixmap_cache[poster_path] = self.pixmap
             self.update()
 
     def set_placeholder(self):

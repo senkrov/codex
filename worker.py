@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 from PyQt6.QtCore import QObject, pyqtSignal, QRunnable
 from tmdb import TMDbAPI
@@ -9,17 +10,17 @@ class WorkerSignals(QObject):
     Defines the signals available from a running worker thread.
     """
     download_finished = pyqtSignal(str, bytes)
-    season_details_finished = pyqtSignal(dict)
+    metadata_finished = pyqtSignal(list, list)
     cache_cleanup_finished = pyqtSignal()
 
 class ImageDownloader(QRunnable):
     """
     A QRunnable worker to download an image in the background.
     """
-    def __init__(self, poster_path):
+    def __init__(self, poster_path, signals):
         super().__init__()
         self.poster_path = poster_path
-        self.signals = WorkerSignals()
+        self.signals = signals
 
     def run(self):
         """Execute the download."""
@@ -35,35 +36,58 @@ class ImageDownloader(QRunnable):
         except requests.exceptions.RequestException as e:
             print(f"Error downloading image {self.poster_path}: {e}")
 
-class SeasonDetailsDownloader(QRunnable):
+class MetadataWorker(QRunnable):
     """
-    A QRunnable worker to download season details in the background.
+    A QRunnable worker to fetch all metadata in the background.
     """
-    def __init__(self, show_id, season_number):
+    def __init__(self, movies, shows, signals):
         super().__init__()
-        self.show_id = show_id
-        self.season_number = season_number
-        self.signals = WorkerSignals()
+        self.movies = movies
+        self.shows = shows
+        self.signals = signals
         self.tmdb_api = TMDbAPI('df63e75244330de0737ce6f6d2f688ce')
 
     def run(self):
-        """Execute the download."""
-        if not self.show_id or self.season_number is None:
-            return
-        
-        season_details = self.tmdb_api.get_show_season_details(self.show_id, self.season_number)
-        if season_details:
-            self.signals.season_details_finished.emit(season_details)
+        """Execute the metadata fetching."""
+        for movie in self.movies:
+            search_results = self.tmdb_api.search_movie(movie['title'], movie['year'])
+            if search_results and 'results' in search_results and search_results['results']:
+                movie['poster_path'] = search_results['results'][0].get('poster_path')
+
+        for show in self.shows:
+            search_results = self.tmdb_api.search_show(show['title'])
+            if search_results and 'results' in search_results and search_results['results']:
+                show['poster_path'] = search_results['results'][0].get('poster_path')
+                show['id'] = search_results['results'][0].get('id')
+                
+                for season in show['seasons']:
+                    season_number_match = re.search(r'\d+', season['name'])
+                    if season_number_match:
+                        season_number = int(season_number_match.group())
+                        season_details = self.tmdb_api.get_show_season_details(show['id'], season_number)
+                        if season_details:
+                            season['poster_path'] = season_details.get('poster_path')
+                            # Process episodes to ensure required fields are present
+                            processed_episodes = []
+                            for episode in season_details.get('episodes', []):
+                                processed_episodes.append({
+                                    'episode_number': episode.get('episode_number'),
+                                    'name': episode.get('name'),
+                                    'still_path': episode.get('still_path')
+                                })
+                            season['episodes_details'] = processed_episodes
+
+        self.signals.metadata_finished.emit(self.movies, self.shows)
 
 class CacheCleanupWorker(QRunnable):
     """
     A QRunnable worker to clean up the cache.
     """
-    def __init__(self, movies, shows):
+    def __init__(self, movies, shows, signals):
         super().__init__()
         self.movies = movies
         self.shows = shows
-        self.signals = WorkerSignals()
+        self.signals = signals
 
     def run(self):
         """Execute the cleanup."""
