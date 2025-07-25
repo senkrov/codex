@@ -1,7 +1,8 @@
-import requests
-from PyQt6.QtWidgets import QWidget, QLabel
+from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QBrush, QPainterPath
-from PyQt6.QtCore import Qt, QRectF
+from PyQt6.QtCore import Qt, QRectF, QThreadPool
+from cache import get_image_from_cache, save_image_to_cache
+from worker import ImageDownloader
 
 class MediaCard(QWidget):
     """
@@ -14,27 +15,38 @@ class MediaCard(QWidget):
         self.year = year
         self.poster_path = poster_path
         self.pixmap = None
+        self.threadpool = QThreadPool()
         self.set_poster()
 
     def set_poster(self):
         if self.poster_path:
-            try:
-                image_url = f"https://image.tmdb.org/t/p/w200{self.poster_path}"
-                response = requests.get(image_url, stream=True)
-                response.raise_for_status()
-                
-                self.pixmap = QPixmap()
-                self.pixmap.loadFromData(response.content)
-            except requests.exceptions.RequestException as e:
-                print(f"Error downloading poster: {e}")
+            cached_pixmap = get_image_from_cache(self.poster_path)
+            if cached_pixmap:
+                self.pixmap = cached_pixmap
+                self.update()
+            else:
                 self.set_placeholder()
+                self.download_poster()
         else:
             self.set_placeholder()
-        self.update() # Trigger a repaint
+
+    def download_poster(self):
+        worker = ImageDownloader(self.poster_path)
+        worker.signals.download_finished.connect(self.on_download_finished)
+        self.threadpool.start(worker)
+
+    def on_download_finished(self, poster_path, image_data):
+        if poster_path == self.poster_path:
+            save_image_to_cache(poster_path, image_data)
+            self.pixmap = QPixmap()
+            self.pixmap.loadFromData(image_data)
+            self.update()
 
     def set_placeholder(self):
-        self.pixmap = QPixmap(200, 300)
-        self.pixmap.fill(Qt.GlobalColor.gray)
+        if not self.pixmap:
+            self.pixmap = QPixmap(200, 300)
+            self.pixmap.fill(Qt.GlobalColor.gray)
+        self.update()
 
     def paintEvent(self, event):
         if not self.pixmap:
@@ -42,32 +54,26 @@ class MediaCard(QWidget):
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # Draw the poster
         painter.drawPixmap(self.rect(), self.pixmap)
 
-        # Draw the overlay
         overlay_height = 60
         overlay_rect = QRectF(0, self.height() - overlay_height, self.width(), overlay_height)
         
         path = QPainterPath()
         path.addRoundedRect(overlay_rect, 10, 10)
         
-        painter.setBrush(QBrush(QColor(0, 0, 0, 180))) # Semi-transparent black
+        painter.setBrush(QBrush(QColor(0, 0, 0, 180)))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawPath(path)
 
-        # Draw the text
         painter.setPen(Qt.GlobalColor.white)
         
-        # Title
         title_font = QFont()
         title_font.setBold(True)
         title_font.setPointSize(12)
         painter.setFont(title_font)
         painter.drawText(QRectF(10, self.height() - 55, self.width() - 20, 30), Qt.AlignmentFlag.AlignLeft, self.title)
 
-        # Year
         year_font = QFont()
         year_font.setPointSize(10)
         painter.setFont(year_font)
@@ -75,14 +81,3 @@ class MediaCard(QWidget):
 
     def sizeHint(self):
         return self.pixmap.size() if self.pixmap else QWidget.sizeHint(self)
-
-
-if __name__ == '__main__':
-    import sys
-    from PyQt6.QtWidgets import QApplication
-
-    app = QApplication(sys.argv)
-    # Example usage with a poster path
-    card = MediaCard("Inception", 2010, "/9gk7adHYeDvHkCSEqAvQNLV5Uge.jpg")
-    card.show()
-    sys.exit(app.exec())

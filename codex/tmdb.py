@@ -1,6 +1,4 @@
-import subprocess
-import json
-from urllib.parse import urlencode
+import requests
 import os
 
 class TMDbAPI:
@@ -11,29 +9,18 @@ class TMDbAPI:
     def _get(self, endpoint, params=None):
         if params is None:
             params = {}
-
+        
         params['api_key'] = self.api_key
 
         try:
-            base_url = f"{self.base_url}/{endpoint.lstrip('/')}"
-            
-            if params:
-                url = f"{base_url}?{urlencode(params)}"
-            else:
-                url = base_url
-
-            curl_cmd = ['curl', '-X', 'GET', url]
-            
-            result = subprocess.run(curl_cmd, capture_output=True, text=True)
-
-            if result.returncode != 0:
-                print(f"Error executing curl: {result.stderr}")
+            url = f"{self.base_url}/{endpoint.lstrip('/')}"
+            response = requests.get(url, params=params)
+            if response.status_code != 200:
+                print(f"Error from TMDb API: {response.status_code} - {response.text}")
                 return None
-            
-            return json.loads(result.stdout)
-
-        except Exception as e:
-            print(f"An error occurred: {e}")
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching data from TMDb: {e}")
             return None
 
     def search_movie(self, title, year=None):
@@ -65,7 +52,7 @@ if __name__ == '__main__':
     # This is for testing the TMDb API wrapper directly.
     # You need to have a TMDb API key set as an environment variable named TMDB_API_KEY
     # or replace it manually.
-    api_key = os.environ.get('TMDB_API_KEY', '1d1f855c79a956515f6438990b93f65b')
+    api_key = os.environ.get('TMDB_API_KEY', 'df63e75244330de0737ce6f6d2f688ce')
     if not api_key:
         print("Please set the TMDB_API_KEY environment variable.")
     else:
