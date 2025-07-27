@@ -8,9 +8,10 @@ This file serves as a living document for the codex project, providing essential
 
 **Core Functionality:**
 *   Scans a specific local directory for movie and show files.
-*   Generates thumbnails for media files.
-*   Organizes scanned media into a browsable catalog (movies and shows displayed as modern graphical cards with full-card artwork relating to the media and basic information such as name and release dates sitting inside the card in a semi-transparent area overlapping a small portion at the bottom of the card, seasons displayed as smaller cards with season names, episodes displayed as rowed lists)
-*   Displays media using a graphical user interface.
+*   Fetches metadata and artwork from TMDb.
+*   Organizes scanned media into a browsable catalog.
+*   Presents movies and shows in a grid view.
+*   Displays seasons and episodes in a dynamic, horizontally scrolling "deck of cards" with 3D perspective effects.
 *   Allows navigation and selection of media items via keyboard shortcuts.
 
 ## Architecture and Design Choices
@@ -29,6 +30,7 @@ This file serves as a living document for the codex project, providing essential
 *   **`cache.py`:** Implements a local file cache for downloaded images to improve performance.
 *   **`worker.py`:** Uses `QThreadPool` and `QRunnable` to perform network operations (image and metadata downloading) in the background, preventing the UI from freezing.
 *   **`ui/`:** A directory containing custom UI components, such as `MediaCard`, `ShowCard`, and `SeasonCard`.
+*   **`ui/animated_season_card.py` & `ui/animated_episode_card.py`:** Custom widgets that wrap the base cards to provide animation and styling capabilities for the new "deck" interface.
 
 ### Key Design Principles
 
@@ -50,13 +52,19 @@ This file serves as a living document for the codex project, providing essential
 *   **UI Refinements:** Moved the "Change Media Directory" button to a less prominent folder icon on the tab bar and implemented a fixed window size to prevent resizing.
 *   **Bug Fixing:** Addressed several bugs, including a `KeyError` when handling TMDb API responses, a typo that caused a crash, and incorrect season sorting.
 
+**Session 2 (2025-07-27):**
+*   **UI Overhaul:** Replaced the season and episode list views with a dynamic, horizontally scrolling "deck of cards" interface.
+*   **3D Perspective:** Implemented a 3D perspective effect for the card deck, with the focused card appearing flat and unfocused cards angled to create a sense of depth.
+*   **Styling and Refinement:** Iteratively refined the appearance of the card deck, adjusting spacing, scale, rotation, and outlines to achieve a more modern and visually appealing look.
+*   **Bug Fixing:** Resolved several bugs related to the new UI, including data parsing errors in the episode view and incorrect keyboard navigation logic.
+
 ## Reasoning for Refactorings/Feature Additions
 
-*(To be documented as changes are made)*
+*   **Card Deck UI:** The original season list had a persistent and difficult-to-resolve bug related to centering the focused card. The decision was made to replace it with a more modern and visually engaging "deck of cards" interface. This not only solved the centering issue but also provided a more unique and aesthetically pleasing user experience.
 
 ## Known Issues and Future Plans
 
-*(To be maintained throughout the project lifecycle)*
+*   The card deck view is functional but may require further visual refinement to perfect the 3D effect and overall feel.
 
 ---
 
