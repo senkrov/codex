@@ -1,18 +1,28 @@
-from PyQt6.QtWidgets import QGraphicsProxyWidget
+from PyQt6.QtWidgets import QGraphicsProxyWidget, QWidget, QVBoxLayout
 from PyQt6.QtCore import QPropertyAnimation, QEasingCurve, QPointF, pyqtProperty
 from PyQt6.QtGui import QTransform
 from PyQt6.QtCore import Qt
 
-from ui.show_widgets import SeasonCard
+from ui.episode_widgets import EpisodeWidget
 
-class AnimatedSeasonCard(QGraphicsProxyWidget):
-    def __init__(self, show_id, season_data, pixmap_cache):
+class AnimatedEpisodeCard(QGraphicsProxyWidget):
+    def __init__(self, episode_data, pixmap_cache):
         super().__init__()
-        self.season_card = SeasonCard(show_id, season_data, pixmap_cache)
-        self.setWidget(self.season_card)
+        
+        # Create a container widget to hold the card and its styles
+        self.container = QWidget()
+        self.episode_card = EpisodeWidget(episode_data, pixmap_cache)
+        
+        # Use a layout to ensure the card fills the container
+        layout = QVBoxLayout(self.container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.episode_card)
+        
+        self.setWidget(self.container)
         self.setTransformOriginPoint(self.boundingRect().center())
         self._rotation_y = 0
 
+        # Animations are disabled for now, but the setup remains
         self.pos_animation = QPropertyAnimation(self, b"pos")
         self.pos_animation.setDuration(300)
         self.pos_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
@@ -53,8 +63,9 @@ class AnimatedSeasonCard(QGraphicsProxyWidget):
     def set_selected(self, selected):
         if selected:
             self.setZValue(1)
-            self.season_card.setStyleSheet("border: 2px solid #0078D7;")
+            # Apply style to the container
+            self.container.setStyleSheet("background-color: #2a2a2a; border: 3px solid #0090ff; border-radius: 8px;")
         else:
             self.setZValue(0)
-            self.season_card.setStyleSheet("border: 1px solid #555;")
-
+            # Apply style to the container
+            self.container.setStyleSheet("background-color: #1e1e1e; border: 2px solid #444; border-radius: 8px;")

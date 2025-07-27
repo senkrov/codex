@@ -4,7 +4,7 @@ import re
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, 
                              QFileDialog, QScrollArea, QGridLayout, 
                              QStyle, QStackedWidget, QLabel, QGraphicsView, QGraphicsScene)
-from PyQt6.QtCore import Qt, QThreadPool, QPointF, QPropertyAnimation
+from PyQt6.QtCore import Qt, pyqtSignal, QThreadPool, QTimer, QPointF
 from PyQt6.QtGui import QPixmap, QFont
 from functools import partial
 from scanner import scan_media
@@ -16,6 +16,7 @@ from ui.main_view import MainView
 from ui.video_player import VideoPlayer
 from ui.settings_view import SettingsView
 from ui.animated_season_card import AnimatedSeasonCard
+from ui.animated_episode_card import AnimatedEpisodeCard
 from tmdb import TMDbAPI
 from config import save_media_path, load_media_path
 from worker import CacheCleanupWorker, WorkerSignals, ImageDownloader, MetadataWorker
@@ -203,24 +204,122 @@ class Codex(QWidget):
         self.current_row = 0
         self.current_col = 0
         self.update_selection()
+        self.update_season_card_positions()
 
     def show_episode_view(self, season_index):
         self.episode_scene.clear()
-        self.episode_widgets = []
+        self.episode_cards = []
 
         show = self.shows[self.current_show_index]
         sorted_seasons = sorted(show['seasons'], key=natural_sort_key)
         season = sorted_seasons[season_index]
         
-        for episode_data in season.get('episodes', []):
-            widget = EpisodeWidget(episode_data, pixmap_cache=self.pixmap_cache)
-            self.episode_scene.addWidget(widget)
-            self.episode_widgets.append(widget)
+        for episode_data in season.get('episodes_details', []):
+            card = AnimatedEpisodeCard(episode_data, pixmap_cache=self.pixmap_cache)
+            self.episode_scene.addItem(card)
+            self.episode_cards.append(card)
 
         self.stack.setCurrentWidget(self.episode_view)
         self.current_row = 0
-        self.current_col = 0
-        self.update_selection()
+        self.current_col = 0 # Ensure first card is selected
+        self.episode_view.horizontalScrollBar().setValue(0) # Reset scrollbar to left
+        QTimer.singleShot(100, self.update_episode_card_positions) # Delay positioning with 100ms
+
+    def update_episode_card_positions(self):
+        if not self.episode_cards:
+            return
+
+        view_width = self.episode_view.viewport().width()
+        card_width = self.episode_cards[0].boundingRect().width()
+        num_cards = len(self.episode_cards)
+
+        # 1. Narrow the focal point's travel range to reduce lateral movement
+        start_x = view_width * 0.35
+        end_x = view_width * 0.65
+        
+        if num_cards > 1:
+            focal_point_x = start_x + (self.current_col / (num_cards - 1)) * (end_x - start_x)
+        else:
+            focal_point_x = view_width / 2
+
+        for i, card in enumerate(self.episode_cards):
+            distance = i - self.current_col
+
+            # 2. Reduce spacing to bring cards closer
+            card_spacing = 5  # Further reduced spacing
+            offset = distance * (card_width * 0.2 + card_spacing) # Further reduced offset multiplier
+            pos_x = focal_point_x + offset - (card_width / 2)
+
+            if distance == 0:
+                scale = 1.2
+                opacity = 1.0
+                rotation = 0
+                card.set_selected(True)
+                card.setZValue(num_cards)
+            else:
+                # 3. Make unfocused cards significantly smaller
+                scale = 0.6
+                opacity = 1.0
+                card.set_selected(False)
+                card.setZValue(num_cards - abs(distance))
+                if distance < 0:
+                    rotation = 25
+                else:
+                    rotation = -25
+
+            card.set_properties_instantly(QPointF(pos_x, 0), scale, opacity, rotation)
+
+    def update_season_card_positions(self):
+        if not self.season_cards:
+            return
+
+        view_width = self.season_view.viewport().width()
+        card_width = self.season_cards[0].boundingRect().width()
+        num_cards = len(self.season_cards)
+
+        # --- Dynamic Focal Point Calculation ---
+        # The focal point moves from left to right as the selection changes.
+        start_x = view_width * 0.15  # Focal point for the first card
+        end_x = view_width * 0.85    # Focal point for the last card
+        
+        if num_cards > 1:
+            focal_point_x = start_x + (self.current_col / (num_cards - 1)) * (end_x - start_x)
+        else:
+            focal_point_x = view_width / 2 # Center if only one card
+
+        # --- Card Positioning and Visual Effects ---
+        for i, card in enumerate(self.season_cards):
+            distance = i - self.current_col
+
+            # --- Position Calculation (Sprawling Layout) ---
+            # The focused card is at focal_point_x.
+            # Other cards are positioned relative to it, creating a fanned-out effect.
+            card_spacing = 30
+            offset = distance * (card_width * 0.4 + card_spacing)
+            pos_x = focal_point_x + offset - (card_width / 2)
+
+            # --- Visual Effect Calculation ---
+            if distance == 0:
+                # Focused card
+                scale = 1.0
+                opacity = 1.0
+                rotation = 0
+                card.set_selected(True)
+                card.setZValue(num_cards)
+            else:
+                # Unfocused cards
+                scale = 0.8  # Fixed scale for all unfocused cards
+                opacity = 0.7 # Fixed opacity for all unfocused cards
+                card.set_selected(False)
+                card.setZValue(num_cards - abs(distance))
+                
+                # Determine rotation based on position relative to the focused card
+                if distance < 0:
+                    rotation = 25  # Positive rotation for cards to the left
+                else:
+                    rotation = -25 # Negative rotation for cards to the right
+
+            card.set_properties_instantly(QPointF(pos_x, 0), scale, opacity, rotation)
 
     def show_settings_view(self):
         self.stack.setCurrentWidget(self.settings_view)
@@ -245,12 +344,21 @@ class Codex(QWidget):
                 self.show_season_view(self.current_show_index)
             return
 
-        if current_widget == self.season_view or current_widget == self.episode_view:
+        if current_widget == self.season_view:
             if key == Qt.Key.Key_J:
                 self.current_col = max(self.current_col - 1, 0)
             elif key == Qt.Key.Key_K:
                 self.current_col = min(self.current_col + 1, len(self.season_cards) - 1)
-            self.update_selection()
+            elif key in (Qt.Key.Key_L, Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                self.show_episode_view(self.current_col)
+            self.update_season_card_positions()
+            return
+        elif current_widget == self.episode_view:
+            if key == Qt.Key.Key_J:
+                self.current_col = max(self.current_col - 1, 0)
+            elif key == Qt.Key.Key_K:
+                self.current_col = min(self.current_col + 1, len(self.episode_cards) - 1)
+            self.update_episode_card_positions()
             return
         
         if key == Qt.Key.Key_J:
@@ -286,35 +394,7 @@ class Codex(QWidget):
         current_widget = self.stack.currentWidget()
 
         if current_widget == self.season_view:
-            center_x = self.season_view.width() / 2
-            for i, card in enumerate(self.season_cards):
-                card.set_selected(i == self.current_col)
-                distance = i - self.current_col
-                
-                card_width = card.boundingRect().width()
-                pos_x = center_x - card_width / 2
-
-                if distance == 0:
-                    scale = 1.5
-                    opacity = 1.0
-                    rotation = 0
-                elif distance in [-1, 1]:
-                    scale = 1.0
-                    opacity = 0.5
-                    rotation = 30 if distance == -1 else -30
-                    pos_x += -250 if distance == -1 else 250
-                elif distance in [-2, 2]:
-                    scale = 0.8
-                    opacity = 0.2
-                    rotation = 45 if distance == -2 else -45
-                    pos_x += -450 if distance == -2 else 450
-                else:
-                    scale = 0.8
-                    opacity = 0.0
-                    rotation = 45 if distance < 0 else -45
-                    pos_x += -600 if distance < 0 else 600
-                
-                card.animate_to(QPointF(pos_x, 0), scale, opacity, rotation)
+            # This logic is now handled by update_season_card_positions
             return
 
         for card_list in [self.movie_cards, self.show_cards, self.category_view.cards]:
