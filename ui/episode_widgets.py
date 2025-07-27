@@ -1,12 +1,12 @@
-from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout, QVBoxLayout
-from PyQt6.QtGui import QPixmap, QFont
+from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, QThreadPool
 from cache import get_image_from_cache, save_image_to_cache
 from worker import ImageDownloader, WorkerSignals
 
 class EpisodeWidget(QWidget):
     """
-    A widget to display episode information in a row format.
+    A widget to display episode information in a card format.
     """
     def __init__(self, episode_data, pixmap_cache=None, parent=None):
         super().__init__(parent)
@@ -17,50 +17,33 @@ class EpisodeWidget(QWidget):
         self.signals = WorkerSignals()
         self.signals.download_finished.connect(self.on_download_finished)
         self.initUI()
+        self.set_thumbnail()
 
     def initUI(self):
-        self.setFixedHeight(100) # Fixed height for each episode row
-        self.setStyleSheet("border: 1px solid #333; border-radius: 5px; margin-bottom: 5px;")
-
-        layout = QHBoxLayout()
-        layout.setContentsMargins(10, 10, 10, 10) # Add padding
+        self.setFixedSize(300, 220)
+        layout = QVBoxLayout()
         self.setLayout(layout)
 
-        # Thumbnail
         self.thumbnail_label = QLabel()
-        self.thumbnail_label.setFixedSize(120, 80)
-        self.set_thumbnail()
+        self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.thumbnail_label)
 
-        # Episode Info
-        info_layout = QVBoxLayout()
-        info_layout.setSpacing(2) # Reduce spacing between labels
-
-        # Title
         self.title_label = QLabel(f"Episode {self.episode_data.get('episode_number')}: {self.episode_data.get('name')}")
-        title_font = QFont()
-        title_font.setBold(True)
-        self.title_label.setFont(title_font)
-        self.title_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        info_layout.addWidget(self.title_label)
-
-        # Overview (if available)
-        overview = self.episode_data.get('overview')
-        if overview:
-            self.overview_label = QLabel(overview)
-            self.overview_label.setWordWrap(True)
-            self.overview_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-            info_layout.addWidget(self.overview_label)
-        
-        layout.addLayout(info_layout)
-        layout.addStretch(1) # Push content to the left
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label.setWordWrap(True)
+        layout.addWidget(self.title_label)
 
     def set_thumbnail(self):
         still_path = self.episode_data.get('still_path')
-        if still_path:
-            cached_pixmap = self.pixmap_cache.get(still_path)
+        if still_path in self.pixmap_cache:
+            self.pixmap = self.pixmap_cache[still_path]
+            self.update_thumbnail()
+        elif still_path:
+            cached_pixmap = get_image_from_cache(still_path)
             if cached_pixmap:
-                self.set_pixmap(cached_pixmap)
+                self.pixmap = cached_pixmap
+                self.pixmap_cache[still_path] = self.pixmap
+                self.update_thumbnail()
             else:
                 self.set_placeholder()
                 self.download_thumbnail(still_path)
@@ -74,19 +57,17 @@ class EpisodeWidget(QWidget):
     def on_download_finished(self, still_path, image_data):
         if still_path == self.episode_data.get('still_path'):
             save_image_to_cache(still_path, image_data)
-            pixmap = QPixmap()
-            pixmap.loadFromData(image_data)
-            self.pixmap_cache[still_path] = pixmap
-            self.set_pixmap(pixmap)
+            self.pixmap = QPixmap()
+            self.pixmap.loadFromData(image_data)
+            self.pixmap_cache[still_path] = self.pixmap
+            self.update_thumbnail()
 
-    def set_pixmap(self, pixmap):
-        self.thumbnail_label.setPixmap(pixmap.scaled(
-            self.thumbnail_label.size(), 
-            Qt.AspectRatioMode.KeepAspectRatio, 
-            Qt.TransformationMode.SmoothTransformation
-        ))
+    def update_thumbnail(self):
+        scaled_pixmap = self.pixmap.scaled(300, 170, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        self.thumbnail_label.setPixmap(scaled_pixmap)
 
     def set_placeholder(self):
-        placeholder = QPixmap(self.thumbnail_label.size())
-        placeholder.fill(Qt.GlobalColor.gray)
-        self.thumbnail_label.setPixmap(placeholder)
+        if not self.pixmap:
+            self.pixmap = QPixmap(300, 170)
+            self.pixmap.fill(Qt.GlobalColor.gray)
+        self.update_thumbnail()

@@ -28,7 +28,7 @@ class ImageDownloader(QRunnable):
             return
 
         try:
-            image_url = f"https://image.tmdb.org/t/p/w200{self.poster_path}"
+            image_url = f"https://image.tmdb.org/t/p/w500{self.poster_path}"
             response = requests.get(image_url, stream=True)
             response.raise_for_status()
             image_data = response.content
@@ -67,7 +67,6 @@ class MetadataWorker(QRunnable):
                         season_details = self.tmdb_api.get_show_season_details(show['id'], season_number)
                         if season_details:
                             season['poster_path'] = season_details.get('poster_path')
-                            # Process episodes to ensure required fields are present
                             processed_episodes = []
                             for episode in season_details.get('episodes', []):
                                 processed_episodes.append({
