@@ -3,10 +3,11 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, QThreadPool
 from cache import get_image_from_cache, save_image_to_cache
 from worker import ImageDownloader, WorkerSignals
+from ui.show_widgets import ClickableQWidget
 
-class EpisodeWidget(QWidget):
+class EpisodeWidget(ClickableQWidget):
     """
-    A widget to display episode information in a card format.
+    A widget to display episode information.
     """
     def __init__(self, episode_data, pixmap_cache=None, parent=None):
         super().__init__(parent)
@@ -17,40 +18,36 @@ class EpisodeWidget(QWidget):
         self.signals = WorkerSignals()
         self.signals.download_finished.connect(self.on_download_finished)
         self.initUI()
-        self.set_thumbnail()
+        self.set_poster()
 
     def initUI(self):
-        self.setFixedSize(300, 220)
+        self.setFixedSize(200, 112) # Thumbnail size
         layout = QVBoxLayout()
         self.setLayout(layout)
+        layout.setContentsMargins(0, 0, 0, 0) # Remove internal margins
+        
+        self.poster_label = QLabel()
+        self.poster_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.poster_label)
 
-        self.thumbnail_label = QLabel()
-        self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.thumbnail_label)
-
-        self.title_label = QLabel(f"Episode {self.episode_data.get('episode_number')}: {self.episode_data.get('name')}")
-        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.title_label.setWordWrap(True)
-        layout.addWidget(self.title_label)
-
-    def set_thumbnail(self):
+    def set_poster(self):
         still_path = self.episode_data.get('still_path')
         if still_path in self.pixmap_cache:
             self.pixmap = self.pixmap_cache[still_path]
-            self.update_thumbnail()
+            self.update_poster()
         elif still_path:
             cached_pixmap = get_image_from_cache(still_path)
             if cached_pixmap:
                 self.pixmap = cached_pixmap
                 self.pixmap_cache[still_path] = self.pixmap
-                self.update_thumbnail()
+                self.update_poster()
             else:
                 self.set_placeholder()
-                self.download_thumbnail(still_path)
+                self.download_poster(still_path)
         else:
             self.set_placeholder()
 
-    def download_thumbnail(self, still_path):
+    def download_poster(self, still_path):
         worker = ImageDownloader(still_path, self.signals)
         self.threadpool.start(worker)
 
@@ -60,14 +57,14 @@ class EpisodeWidget(QWidget):
             self.pixmap = QPixmap()
             self.pixmap.loadFromData(image_data)
             self.pixmap_cache[still_path] = self.pixmap
-            self.update_thumbnail()
+            self.update_poster()
 
-    def update_thumbnail(self):
-        scaled_pixmap = self.pixmap.scaled(300, 170, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-        self.thumbnail_label.setPixmap(scaled_pixmap)
+    def update_poster(self):
+        scaled_pixmap = self.pixmap.scaled(200, 112, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        self.poster_label.setPixmap(scaled_pixmap)
 
     def set_placeholder(self):
         if not self.pixmap:
-            self.pixmap = QPixmap(300, 170)
+            self.pixmap = QPixmap(200, 112)
             self.pixmap.fill(Qt.GlobalColor.gray)
-        self.update_thumbnail()
+        self.update_poster()

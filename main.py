@@ -2,7 +2,7 @@ import sys
 import os
 import re
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, 
-                             QFileDialog, QScrollArea, QGridLayout, 
+                             QFileDialog, QScrollArea, QGridLayout, QProgressBar, QHBoxLayout, 
                              QStyle, QStackedWidget, QLabel, QGraphicsView, QGraphicsScene)
 from PyQt6.QtCore import Qt, pyqtSignal, QThreadPool, QTimer, QPointF
 from PyQt6.QtGui import QPixmap, QFont
@@ -17,6 +17,7 @@ from ui.video_player import VideoPlayer
 from ui.settings_view import SettingsView
 from ui.animated_season_card import AnimatedSeasonCard
 from ui.animated_episode_card import AnimatedEpisodeCard
+from ui.position_indicator_bar import PositionIndicatorBar
 from tmdb import TMDbAPI
 from config import save_media_path, load_media_path
 from worker import CacheCleanupWorker, WorkerSignals, ImageDownloader, MetadataWorker
@@ -90,12 +91,37 @@ class Codex(QWidget):
         self.season_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.stack.addWidget(self.season_view)
 
-        # Episode View
+        # Episode View (Container for cards, progress bar, and text)
+        self.episode_view_container = QWidget()
+        episode_view_layout = QVBoxLayout(self.episode_view_container)
+        episode_view_layout.setContentsMargins(0, 0, 0, 0)
+        episode_view_layout.setSpacing(0) # Move bar closer to thumbnails
+
         self.episode_scene = QGraphicsScene()
         self.episode_view = QGraphicsView(self.episode_scene)
+        self.episode_view.setFixedHeight(200) # Constrain the height
         self.episode_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.episode_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.stack.addWidget(self.episode_view)
+        episode_view_layout.addWidget(self.episode_view)
+
+        # Position Indicator Bar Container
+        indicator_bar_container = QWidget()
+        indicator_bar_layout = QHBoxLayout(indicator_bar_container)
+        indicator_bar_layout.setContentsMargins(0, 0, 0, 0)
+        self.episode_position_bar = PositionIndicatorBar()
+        self.episode_position_bar.setFixedHeight(10)
+        indicator_bar_layout.addStretch()
+        indicator_bar_layout.addWidget(self.episode_position_bar)
+        indicator_bar_layout.addStretch()
+        episode_view_layout.addWidget(indicator_bar_container)
+
+        # Episode Info Labels
+        self.episode_info_label = QLabel("", self)
+        self.episode_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.episode_info_label.setStyleSheet("color: white; font-size: 16px; padding: 5px;")
+        episode_view_layout.addWidget(self.episode_info_label)
+
+        self.stack.addWidget(self.episode_view_container)
 
     def load_initial_media(self):
         media_path = load_media_path()
@@ -219,7 +245,7 @@ class Codex(QWidget):
             self.episode_scene.addItem(card)
             self.episode_cards.append(card)
 
-        self.stack.setCurrentWidget(self.episode_view)
+        self.stack.setCurrentWidget(self.episode_view_container)
         self.current_row = 0
         self.current_col = 0 # Ensure first card is selected
         self.episode_view.horizontalScrollBar().setValue(0) # Reset scrollbar to left
@@ -242,6 +268,9 @@ class Codex(QWidget):
         else:
             focal_point_x = view_width / 2
 
+        first_card_pos_x = 0
+        last_card_pos_x = 0
+
         for i, card in enumerate(self.episode_cards):
             distance = i - self.current_col
 
@@ -249,6 +278,11 @@ class Codex(QWidget):
             card_spacing = 5  # Further reduced spacing
             offset = distance * (card_width * 0.2 + card_spacing) # Further reduced offset multiplier
             pos_x = focal_point_x + offset - (card_width / 2)
+
+            if i == 0:
+                first_card_pos_x = pos_x
+            if i == num_cards - 1:
+                last_card_pos_x = pos_x
 
             if distance == 0:
                 scale = 1.2
@@ -268,6 +302,22 @@ class Codex(QWidget):
                     rotation = -25
 
             card.set_properties_instantly(QPointF(pos_x, 0), scale, opacity, rotation)
+
+        # Update position bar and info label
+        if num_cards > 0:
+            last_card_width = self.episode_cards[-1].boundingRect().width() * 0.6 # 0.6 is the unfocused scale
+            total_deck_width = (last_card_pos_x + last_card_width) - first_card_pos_x
+            self.episode_position_bar.setFixedWidth(int(total_deck_width))
+            self.episode_position_bar.set_position(self.current_col, num_cards)
+            
+            current_episode_data = self.episode_cards[self.current_col].episode_card.episode_data
+            episode_number = current_episode_data.get('episode_number', 'N/A')
+            episode_name = current_episode_data.get('name', 'N/A')
+            self.episode_info_label.setText(f"Episode {episode_number}: {episode_name}")
+        else:
+            self.episode_position_bar.setFixedWidth(0)
+            self.episode_position_bar.set_position(0, 1)
+            self.episode_info_label.setText("No episodes found.")
 
     def update_season_card_positions(self):
         if not self.season_cards:
@@ -340,7 +390,7 @@ class Codex(QWidget):
                 self.show_main_view()
             elif current_widget == self.season_view:
                 self.show_media_grid("shows")
-            elif current_widget == self.episode_view:
+            elif current_widget == self.episode_view_container:
                 self.show_season_view(self.current_show_index)
             return
 
@@ -353,7 +403,7 @@ class Codex(QWidget):
                 self.show_episode_view(self.current_col)
             self.update_season_card_positions()
             return
-        elif current_widget == self.episode_view:
+        elif current_widget == self.episode_view_container:
             if key == Qt.Key.Key_J:
                 self.current_col = max(self.current_col - 1, 0)
             elif key == Qt.Key.Key_K:
