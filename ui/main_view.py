@@ -22,7 +22,11 @@ class MainView(QWidget):
         self.shows_card.clicked.connect(self.category_selected.emit)
         layout.addWidget(self.shows_card, 0, 1, Qt.AlignmentFlag.AlignCenter)
 
-        self.cards = [self.movies_card, self.shows_card]
+        self.podcasts_card = ClickableCategoryCard("Podcasts", "podcasts")
+        self.podcasts_card.clicked.connect(self.category_selected.emit)
+        layout.addWidget(self.podcasts_card, 0, 2, Qt.AlignmentFlag.AlignCenter)
+
+        self.cards = [self.movies_card, self.shows_card, self.podcasts_card]
         self.current_selection_index = 0
         self.update_selection()
 

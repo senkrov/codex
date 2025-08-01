@@ -10,7 +10,7 @@ class WorkerSignals(QObject):
     Defines the signals available from a running worker thread.
     """
     download_finished = pyqtSignal(str, bytes)
-    metadata_finished = pyqtSignal(list, list)
+    metadata_finished = pyqtSignal(list, list, list)
     cache_cleanup_finished = pyqtSignal()
 
 class ImageDownloader(QRunnable):
@@ -40,10 +40,11 @@ class MetadataWorker(QRunnable):
     """
     A QRunnable worker to fetch all metadata in the background.
     """
-    def __init__(self, movies, shows, signals):
+    def __init__(self, movies, shows, podcasts, signals):
         super().__init__()
         self.movies = movies
         self.shows = shows
+        self.podcasts = podcasts
         self.signals = signals
         self.tmdb_api = TMDbAPI('df63e75244330de0737ce6f6d2f688ce')
 
@@ -86,9 +87,13 @@ class MetadataWorker(QRunnable):
                                 })
                             season['episodes_details'] = processed_episodes
 
+        # No external metadata fetching for podcasts for now
+        for podcast in self.podcasts:
+            podcast['poster_path'] = None # No poster from TMDb
+
         end_time = time.time()
         print(f"Metadata fetching completed in {end_time - start_time:.2f} seconds.")
-        self.signals.metadata_finished.emit(self.movies, self.shows)
+        self.signals.metadata_finished.emit(self.movies, self.shows, self.podcasts)
 
 class CacheCleanupWorker(QRunnable):
     """

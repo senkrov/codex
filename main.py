@@ -20,7 +20,7 @@ from ui.animated_episode_card import AnimatedEpisodeCard
 from ui.position_indicator_bar import PositionIndicatorBar
 from tmdb import TMDbAPI
 from config import save_media_path, load_media_path
-from worker import CacheCleanupWorker, WorkerSignals, ImageDownloader, MetadataWorker, SingleShowMetadataWorker
+from worker import CacheCleanupWorker, WorkerSignals, ImageDownloader, MetadataWorker
 
 def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s['name'])]
@@ -43,6 +43,16 @@ class Codex(QWidget):
         self.worker_signals.metadata_finished.connect(self.populate_ui)
         self.initUI()
         self.load_initial_media()
+
+        # Initialize navigation map
+        self.back_navigation_map = {
+            self.movies_scroll_area: self.show_main_view,
+            self.shows_scroll_area: self.show_main_view,
+            self.podcasts_scroll_area: self.show_main_view,
+            self.season_view: partial(self.show_media_grid, "shows"), # Assuming seasons always come from shows
+            self.episode_view_container: partial(self.show_season_view, self.current_show_index), # Needs current_show_index
+            self.settings_view: self.show_main_view
+        }
 
     def initUI(self):
         self.setWindowTitle('Codex')
@@ -83,6 +93,14 @@ class Codex(QWidget):
         self.shows_scroll_area.setWidget(self.shows_grid_view)
         self.stack.addWidget(self.shows_scroll_area)
         
+        # Podcasts Grid View
+        self.podcasts_grid_view = QWidget()
+        self.podcasts_layout = QGridLayout(self.podcasts_grid_view)
+        self.podcasts_scroll_area = QScrollArea()
+        self.podcasts_scroll_area.setWidgetResizable(True)
+        self.podcasts_scroll_area.setWidget(self.podcasts_grid_view)
+        self.stack.addWidget(self.podcasts_scroll_area)
+
         # Season View
         self.season_scene = QGraphicsScene()
         self.season_view = QGraphicsView(self.season_scene)
@@ -141,23 +159,25 @@ class Codex(QWidget):
         import time
         start_time = time.time()
         self.loading_label.show()
-        movies, self.shows = scan_media(media_path)
+        movies, self.shows, podcasts = scan_media(media_path)
         end_time = time.time()
         print(f"Media scan completed in {end_time - start_time:.2f} seconds.")
-        metadata_worker = MetadataWorker(movies, self.shows, self.worker_signals)
+        metadata_worker = MetadataWorker(movies, self.shows, podcasts, self.worker_signals)
         self.threadpool.start(metadata_worker)
 
-    def populate_ui(self, movies, shows):
+    def populate_ui(self, movies, shows, podcasts):
         print("Starting UI population...")
         import time
         start_time = time.time()
         self.loading_label.hide()
         self.movies = movies
         self.shows = shows
+        self.podcasts = podcasts
 
         for card in self.movie_cards + self.show_cards:
             card.setParent(None)
         self.movie_cards, self.show_cards = [], []
+        self.podcast_cards = [] # Initialize podcast cards list
         
         cleanup_worker = CacheCleanupWorker(self.movies, self.shows, self.worker_signals)
         self.threadpool.start(cleanup_worker)
@@ -177,6 +197,14 @@ class Codex(QWidget):
             card = ShowCard(show, self.pixmap_cache)
             self.shows_layout.addWidget(card, row, col)
             self.show_cards.append(card)
+            col += 1
+            if col > 3: col = 0; row += 1
+
+        row, col = 0, 0
+        for i, podcast in enumerate(self.podcasts):
+            card = MediaCard(podcast['title'], None, podcast.get('poster_path'), self.pixmap_cache) # No year for podcasts
+            self.podcasts_layout.addWidget(card, row, col)
+            self.podcast_cards.append(card)
             col += 1
             if col > 3: col = 0; row += 1
 
@@ -215,6 +243,8 @@ class Codex(QWidget):
             self.stack.setCurrentWidget(self.movies_scroll_area)
         elif category_type == "shows":
             self.stack.setCurrentWidget(self.shows_scroll_area)
+        elif category_type == "podcasts":
+            self.stack.setCurrentWidget(self.podcasts_scroll_area)
         self.update_selection()
 
     def show_season_view(self, show_index):
@@ -391,14 +421,12 @@ class Codex(QWidget):
             self.show_settings_view()
             return
         elif key == Qt.Key.Key_H:
-            if current_widget == self.movies_scroll_area or current_widget == self.shows_scroll_area:
-                self.show_main_view()
-            elif current_widget == self.season_view:
-                self.show_media_grid("shows")
-            elif current_widget == self.episode_view:
-                self.show_season_view(self.current_show_index)
-            elif current_widget == self.settings_view:
-                self.show_main_view() # Go back to category view
+            back_function = self.back_navigation_map.get(current_widget)
+            if back_function:
+                # For episode view, update the partial with the correct current_show_index
+                if current_widget == self.episode_view_container:
+                    back_function = partial(self.show_season_view, self.current_show_index)
+                back_function()
             return
 
         if current_widget == self.season_view:
@@ -419,8 +447,6 @@ class Codex(QWidget):
                 if 0 <= self.current_col < len(self.episode_cards):
                     episode_data = self.episode_cards[self.current_col].episode_card.episode_data
                     episode_path = episode_data.get('path')
-                    print(f"Attempting to play episode: {episode_data.get('name', 'Unknown Episode')}")
-                    print(f"Episode path: {episode_path}")
                     if episode_path:
                         self.play_media(episode_path)
                     else:
@@ -448,8 +474,10 @@ class Codex(QWidget):
             elif current_widget == self.category_view:
                 if self.current_col == 0:
                     self.show_media_grid("movies")
-                else:
+                elif self.current_col == 1:
                     self.show_media_grid("shows")
+                elif self.current_col == 2:
+                    self.show_media_grid("podcasts")
         
         self.update_selection()
 

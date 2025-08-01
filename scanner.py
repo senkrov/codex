@@ -3,10 +3,11 @@ import re
 
 def scan_media(media_path):
     """
-    Scans the given media path for movies and shows based on the expected directory structure.
+    Scans the given media path for movies, shows, and podcasts based on the expected directory structure.
     """
     movies_path = os.path.join(media_path, 'movies')
     shows_path = os.path.join(media_path, 'shows')
+    podcasts_path = os.path.join(media_path, 'podcasts')
 
     movies = []
     if os.path.exists(movies_path):
@@ -69,4 +70,22 @@ def scan_media(media_path):
                     show_data = {'title': show_dir, 'path': show_path, 'seasons': seasons}
                     shows.append(show_data)
 
-    return movies, shows
+    podcasts = []
+    if os.path.exists(podcasts_path):
+        for podcast_series_dir in os.listdir(podcasts_path):
+            podcast_series_path = os.path.join(podcasts_path, podcast_series_dir)
+            if os.path.isdir(podcast_series_path):
+                podcast_episodes = []
+                for episode_file in os.listdir(podcast_series_path):
+                    if episode_file.lower().endswith(('.mp3', '.m4a', '.wav')):
+                        episode_path = os.path.join(podcast_series_path, episode_file)
+                        episode_name = os.path.splitext(episode_file)[0]
+                        podcast_episodes.append({
+                            'name': episode_name,
+                            'path': episode_path
+                        })
+                if podcast_episodes:
+                    podcast_data = {'title': podcast_series_dir, 'path': podcast_series_path, 'episodes': podcast_episodes}
+                    podcasts.append(podcast_data)
+
+    return movies, shows, podcasts
