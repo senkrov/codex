@@ -20,7 +20,7 @@ from ui.animated_episode_card import AnimatedEpisodeCard
 from ui.position_indicator_bar import PositionIndicatorBar
 from tmdb import TMDbAPI
 from config import save_media_path, load_media_path
-from worker import CacheCleanupWorker, WorkerSignals, ImageDownloader, MetadataWorker
+from worker import CacheCleanupWorker, WorkerSignals, ImageDownloader, MetadataWorker, SingleShowMetadataWorker
 
 def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s['name'])]
@@ -41,7 +41,6 @@ class Codex(QWidget):
         self.worker_signals = WorkerSignals()
         self.worker_signals.download_finished.connect(self.on_image_downloaded)
         self.worker_signals.metadata_finished.connect(self.populate_ui)
-        self.worker_signals.single_show_metadata_finished.connect(self.on_single_show_metadata_finished)
         self.initUI()
         self.load_initial_media()
 
@@ -209,15 +208,6 @@ class Codex(QWidget):
         pixmap.loadFromData(image_data)
         self.pixmap_cache[poster_path] = pixmap
 
-    def on_single_show_metadata_finished(self, updated_show_data):
-        # Find the show in self.shows and update its data
-        for i, show in enumerate(self.shows):
-            if show.get('id') == updated_show_data.get('id'):
-                self.shows[i] = updated_show_data
-                break
-        self.loading_label.hide()
-        self._display_season_view_content(self.current_show_index)
-
     def show_media_grid(self, category_type):
         self.current_row = 0
         self.current_col = 0
@@ -229,19 +219,6 @@ class Codex(QWidget):
 
     def show_season_view(self, show_index):
         self.current_show_index = show_index
-        show = self.shows[show_index]
-
-        # Check if season details are already fetched
-        if all('episodes_details' in season for season in show['seasons']):
-            self._display_season_view_content(show_index)
-        else:
-            self.loading_label.setText(f"Loading seasons for {show.get('title')}...")
-            self.loading_label.show()
-            self.stack.setCurrentWidget(self.loading_label) # Show loading screen
-            worker = SingleShowMetadataWorker(show, self.worker_signals)
-            self.threadpool.start(worker)
-
-    def _display_season_view_content(self, show_index):
         self.season_scene.clear()
         self.season_cards = []
         
@@ -440,9 +417,14 @@ class Codex(QWidget):
                 self.current_col = min(self.current_col + 1, len(self.episode_cards) - 1)
             elif key in (Qt.Key.Key_L, Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
                 if 0 <= self.current_col < len(self.episode_cards):
-                    episode_path = self.episode_cards[self.current_col].episode_card.episode_data.get('path')
+                    episode_data = self.episode_cards[self.current_col].episode_card.episode_data
+                    episode_path = episode_data.get('path')
+                    print(f"Attempting to play episode: {episode_data.get('name', 'Unknown Episode')}")
+                    print(f"Episode path: {episode_path}")
                     if episode_path:
                         self.play_media(episode_path)
+                    else:
+                        print("Error: Episode path not found.")
             self.update_episode_card_positions()
             return
         
@@ -472,6 +454,7 @@ class Codex(QWidget):
         self.update_selection()
 
     def play_media(self, path):
+        print(f"Calling play_media with path: {path}")
         try:
             os.startfile(path)
         except AttributeError: # For non-Windows OS

@@ -31,6 +31,7 @@ This file serves as a living document for the codex project, providing essential
 *   **`worker.py`:** Uses `QThreadPool` and `QRunnable` to perform network operations (image and metadata downloading) in the background, preventing the UI from freezing.
 *   **`ui/`:** A directory containing custom UI components, such as `MediaCard`, `ShowCard`, and `SeasonCard`.
 *   **`ui/animated_season_card.py` & `ui/animated_episode_card.py`:** Custom widgets that wrap the base cards to provide animation and styling capabilities for the new "deck" interface.
+*   **`ui/position_indicator_bar.py`:** Custom widget for the episode list position indicator.
 
 ### Key Design Principles
 
@@ -57,10 +58,15 @@ This file serves as a living document for the codex project, providing essential
 *   **3D Perspective:** Implemented a 3D perspective effect for the card deck, with the focused card appearing flat and unfocused cards angled to create a sense of depth.
 *   **Styling and Refinement:** Iteratively refined the appearance of the card deck, adjusting spacing, scale, rotation, and outlines to achieve a more modern and visually appealing look.
 *   **Bug Fixing:** Resolved several bugs related to the new UI, including data parsing errors in the episode view and incorrect keyboard navigation logic.
+*   **Episode View Enhancements:** Redesigned the episode list to remove the title text, adjust card size, add a custom position indicator bar, and display episode number/title below the cards.
+*   **Full Keyboard Navigation:** Removed all clickable elements from the UI, ensuring the application is entirely navigable via keyboard shortcuts.
+*   **Performance (Reverted Lazy Loading):** Reverted the lazy loading of season and episode metadata due to perceived lack of smoothness, returning to upfront metadata fetching for all media.
 
 ## Reasoning for Refactorings/Feature Additions
 
-*   **Card Deck UI:** The original season list had a persistent and difficult-to-resolve bug related to centering the focused card. The decision was made to replace it with a more modern and visually engaging "deck of cards" interface. This not only solved the centering issue but also provided a more unique and aesthetically pleasing user experience.
+*   **Card Deck UI:** The original season list had a persistent and difficult-to-resolve bug related to centering the focused card. The decision was made to replace it with a more modern and visually engaging "deck of cards" interface. This not only solved the centering issue but also provided a more unique and aesthetically appealing user experience.
+*   **Full Keyboard Navigation:** To provide a consistent and efficient user experience, all mouse-clickable elements were removed in favor of a purely keyboard-driven interface.
+*   **Metadata Loading:** The lazy loading of season and episode metadata, while intended to improve initial launch time, was perceived to negatively impact the smoothness of navigation within the application. Therefore, the metadata loading strategy was reverted to its previous state of fetching all metadata upfront.
 
 ## Known Issues and Future Plans
 
