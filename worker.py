@@ -11,6 +11,7 @@ class WorkerSignals(QObject):
     """
     download_finished = pyqtSignal(str, bytes)
     metadata_finished = pyqtSignal(list, list)
+    single_show_metadata_finished = pyqtSignal(dict)
     cache_cleanup_finished = pyqtSignal()
 
 class ImageDownloader(QRunnable):
@@ -49,6 +50,8 @@ class MetadataWorker(QRunnable):
 
     def run(self):
         """Execute the metadata fetching."""
+        import time
+        start_time = time.time()
         for movie in self.movies:
             search_results = self.tmdb_api.search_movie(movie['title'], movie['year'])
             if search_results and 'results' in search_results and search_results['results']:
@@ -59,23 +62,10 @@ class MetadataWorker(QRunnable):
             if search_results and 'results' in search_results and search_results['results']:
                 show['poster_path'] = search_results['results'][0].get('poster_path')
                 show['id'] = search_results['results'][0].get('id')
-                
-                for season in show['seasons']:
-                    season_number_match = re.search(r'\d+', season['name'])
-                    if season_number_match:
-                        season_number = int(season_number_match.group())
-                        season_details = self.tmdb_api.get_show_season_details(show['id'], season_number)
-                        if season_details:
-                            season['poster_path'] = season_details.get('poster_path')
-                            processed_episodes = []
-                            for episode in season_details.get('episodes', []):
-                                processed_episodes.append({
-                                    'episode_number': episode.get('episode_number'),
-                                    'name': episode.get('name'),
-                                    'still_path': episode.get('still_path')
-                                })
-                            season['episodes_details'] = processed_episodes
+                # Season and episode details will be fetched on demand
 
+        end_time = time.time()
+        print(f"Metadata fetching completed in {end_time - start_time:.2f} seconds.")
         self.signals.metadata_finished.emit(self.movies, self.shows)
 
 class CacheCleanupWorker(QRunnable):
@@ -90,6 +80,9 @@ class CacheCleanupWorker(QRunnable):
 
     def run(self):
         """Execute the cleanup."""
+        print("Starting cache cleanup...")
+        import time
+        start_time = time.time()
         if not os.path.exists(CACHE_DIR):
             return
 
@@ -111,5 +104,47 @@ class CacheCleanupWorker(QRunnable):
                     os.remove(os.path.join(CACHE_DIR, filename))
                 except OSError as e:
                     print(f"Error removing cached file: {e}")
-        
+        end_time = time.time()
+        print(f"Cache cleanup completed in {end_time - start_time:.2f} seconds.")
         self.signals.cache_cleanup_finished.emit()
+
+class SingleShowMetadataWorker(QRunnable):
+    """
+    A QRunnable worker to fetch metadata for a single show's seasons and episodes.
+    """
+    def __init__(self, show_data, signals):
+        super().__init__()
+        self.show_data = show_data
+        self.signals = signals
+        self.tmdb_api = TMDbAPI('df63e75244330de0737ce6f6d2f688ce')
+
+    def run(self):
+        print(f"Fetching season/episode metadata for {self.show_data.get('title')}...")
+        import time
+        start_time = time.time()
+
+        show_id = self.show_data.get('id')
+        if not show_id:
+            print(f"Error: No TMDb ID for show {self.show_data.get('title')}")
+            self.signals.single_show_metadata_finished.emit(self.show_data) # Emit even on error
+            return
+
+        for season in self.show_data['seasons']:
+            season_number_match = re.search(r'\d+', season['name'])
+            if season_number_match:
+                season_number = int(season_number_match.group())
+                season_details = self.tmdb_api.get_show_season_details(show_id, season_number)
+                if season_details:
+                    season['poster_path'] = season_details.get('poster_path')
+                    processed_episodes = []
+                    for episode in season_details.get('episodes', []):
+                        processed_episodes.append({
+                            'episode_number': episode.get('episode_number'),
+                            'name': episode.get('name'),
+                            'still_path': episode.get('still_path')
+                        })
+                    season['episodes_details'] = processed_episodes
+        
+        end_time = time.time()
+        print(f"Finished fetching season/episode metadata for {self.show_data.get('title')} in {end_time - start_time:.2f} seconds.")
+        self.signals.single_show_metadata_finished.emit(self.show_data)

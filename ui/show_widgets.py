@@ -1,17 +1,10 @@
 from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtCore import Qt, pyqtSignal, QThreadPool
+from PyQt6.QtCore import Qt, QThreadPool
 from cache import get_image_from_cache, save_image_to_cache
 from worker import ImageDownloader, WorkerSignals
 
-class ClickableQWidget(QWidget):
-    clicked = pyqtSignal()
-
-    def mousePressEvent(self, event):
-        self.clicked.emit()
-        super().mousePressEvent(event)
-
-class ShowCard(ClickableQWidget):
+class ShowCard(QWidget):
     """
     A widget to display show information in a card format.
     """
@@ -79,7 +72,7 @@ class ShowCard(ClickableQWidget):
             self.pixmap.fill(Qt.GlobalColor.gray)
         self.update_poster()
 
-class SeasonCard(ClickableQWidget):
+class SeasonCard(QWidget):
     """
     A widget to display season information.
     """

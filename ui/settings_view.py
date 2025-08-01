@@ -16,15 +16,10 @@ class SettingsView(QWidget):
         self.media_path_label = QLabel(f"Media Path: {load_media_path() or 'Not Set'}")
         media_path_layout.addWidget(self.media_path_label)
 
-        browse_button = QPushButton("Browse")
-        browse_button.clicked.connect(self.browse_media_path)
-        media_path_layout.addWidget(browse_button)
+        # Removed Browse Button as per user request (keyboard navigation only)
         layout.addLayout(media_path_layout)
 
-        # Back Button
-        back_button = QPushButton("Back")
-        back_button.clicked.connect(self.main_app.show_main_view)
-        layout.addWidget(back_button)
+        # Removed Back Button as per user request (keyboard navigation only)
 
     def browse_media_path(self):
         media_path = QFileDialog.getExistingDirectory(self, 'Select Media Directory')

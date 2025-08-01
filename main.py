@@ -41,6 +41,7 @@ class Codex(QWidget):
         self.worker_signals = WorkerSignals()
         self.worker_signals.download_finished.connect(self.on_image_downloaded)
         self.worker_signals.metadata_finished.connect(self.populate_ui)
+        self.worker_signals.single_show_metadata_finished.connect(self.on_single_show_metadata_finished)
         self.initUI()
         self.load_initial_media()
 
@@ -61,7 +62,6 @@ class Codex(QWidget):
         
         # Category View (New Main Screen)
         self.category_view = MainView()
-        self.category_view.category_selected.connect(self.show_media_grid)
         self.stack.addWidget(self.category_view)
 
         # Settings View
@@ -138,12 +138,20 @@ class Codex(QWidget):
             self.scan_and_display_media(media_path)
 
     def scan_and_display_media(self, media_path):
+        print("Starting media scan...")
+        import time
+        start_time = time.time()
         self.loading_label.show()
         movies, self.shows = scan_media(media_path)
+        end_time = time.time()
+        print(f"Media scan completed in {end_time - start_time:.2f} seconds.")
         metadata_worker = MetadataWorker(movies, self.shows, self.worker_signals)
         self.threadpool.start(metadata_worker)
 
     def populate_ui(self, movies, shows):
+        print("Starting UI population...")
+        import time
+        start_time = time.time()
         self.loading_label.hide()
         self.movies = movies
         self.shows = shows
@@ -168,7 +176,6 @@ class Codex(QWidget):
         row, col = 0, 0
         for i, show in enumerate(self.shows):
             card = ShowCard(show, self.pixmap_cache)
-            card.clicked.connect(partial(self.show_season_view, i))
             self.shows_layout.addWidget(card, row, col)
             self.show_cards.append(card)
             col += 1
@@ -202,6 +209,15 @@ class Codex(QWidget):
         pixmap.loadFromData(image_data)
         self.pixmap_cache[poster_path] = pixmap
 
+    def on_single_show_metadata_finished(self, updated_show_data):
+        # Find the show in self.shows and update its data
+        for i, show in enumerate(self.shows):
+            if show.get('id') == updated_show_data.get('id'):
+                self.shows[i] = updated_show_data
+                break
+        self.loading_label.hide()
+        self._display_season_view_content(self.current_show_index)
+
     def show_media_grid(self, category_type):
         self.current_row = 0
         self.current_col = 0
@@ -213,6 +229,19 @@ class Codex(QWidget):
 
     def show_season_view(self, show_index):
         self.current_show_index = show_index
+        show = self.shows[show_index]
+
+        # Check if season details are already fetched
+        if all('episodes_details' in season for season in show['seasons']):
+            self._display_season_view_content(show_index)
+        else:
+            self.loading_label.setText(f"Loading seasons for {show.get('title')}...")
+            self.loading_label.show()
+            self.stack.setCurrentWidget(self.loading_label) # Show loading screen
+            worker = SingleShowMetadataWorker(show, self.worker_signals)
+            self.threadpool.start(worker)
+
+    def _display_season_view_content(self, show_index):
         self.season_scene.clear()
         self.season_cards = []
         
@@ -222,7 +251,6 @@ class Codex(QWidget):
         
         for i, season in enumerate(sorted_seasons):
             card = AnimatedSeasonCard(show.get('id'), season_data=season, pixmap_cache=self.pixmap_cache)
-            card.season_card.clicked.connect(partial(self.show_episode_view, i))
             self.season_scene.addItem(card)
             self.season_cards.append(card)
         
@@ -390,8 +418,10 @@ class Codex(QWidget):
                 self.show_main_view()
             elif current_widget == self.season_view:
                 self.show_media_grid("shows")
-            elif current_widget == self.episode_view_container:
+            elif current_widget == self.episode_view:
                 self.show_season_view(self.current_show_index)
+            elif current_widget == self.settings_view:
+                self.show_main_view() # Go back to category view
             return
 
         if current_widget == self.season_view:
@@ -408,6 +438,11 @@ class Codex(QWidget):
                 self.current_col = max(self.current_col - 1, 0)
             elif key == Qt.Key.Key_K:
                 self.current_col = min(self.current_col + 1, len(self.episode_cards) - 1)
+            elif key in (Qt.Key.Key_L, Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                if 0 <= self.current_col < len(self.episode_cards):
+                    episode_path = self.episode_cards[self.current_col].episode_card.episode_data.get('path')
+                    if episode_path:
+                        self.play_media(episode_path)
             self.update_episode_card_positions()
             return
         
@@ -437,8 +472,11 @@ class Codex(QWidget):
         self.update_selection()
 
     def play_media(self, path):
-        self.video_player = VideoPlayer(path)
-        self.video_player.show()
+        try:
+            os.startfile(path)
+        except AttributeError: # For non-Windows OS
+            import subprocess
+            subprocess.Popen(['xdg-open', path])
 
     def update_selection(self):
         current_widget = self.stack.currentWidget()

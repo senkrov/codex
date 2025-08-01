@@ -3,9 +3,8 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, QThreadPool
 from cache import get_image_from_cache, save_image_to_cache
 from worker import ImageDownloader, WorkerSignals
-from ui.show_widgets import ClickableQWidget
 
-class EpisodeWidget(ClickableQWidget):
+class EpisodeWidget(QWidget):
     """
     A widget to display episode information.
     """
