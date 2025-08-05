@@ -77,7 +77,7 @@ def scan_media(media_path):
             if os.path.isdir(podcast_series_path):
                 podcast_episodes = []
                 for episode_file in os.listdir(podcast_series_path):
-                    if episode_file.lower().endswith(('.mp3', '.m4a', '.wav')):
+                    if episode_file.lower().endswith(('.mp3', '.m4a', '.wav', '.webm')):
                         episode_path = os.path.join(podcast_series_path, episode_file)
                         episode_name = os.path.splitext(episode_file)[0]
                         podcast_episodes.append({

@@ -15,7 +15,7 @@ class MediaCard(ClickableQWidget):
     """
     A widget to display media information in a card format.
     """
-    def __init__(self, title, year, poster_path=None, pixmap_cache=None, parent=None):
+    def __init__(self, title, poster_path=None, year=None, pixmap_cache=None, parent=None):
         super().__init__(parent)
         self.title = title
         self.year = year
@@ -42,9 +42,10 @@ class MediaCard(ClickableQWidget):
         self.title_label.setWordWrap(True)
         layout.addWidget(self.title_label)
 
-        self.year_label = QLabel(str(self.year))
-        self.year_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.year_label)
+        if self.year is not None:
+            self.year_label = QLabel(str(self.year))
+            self.year_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(self.year_label)
 
     def set_poster(self):
         if self.poster_path in self.pixmap_cache:
@@ -83,3 +84,9 @@ class MediaCard(ClickableQWidget):
             self.pixmap = QPixmap(200, 300)
             self.pixmap.fill(Qt.GlobalColor.gray)
         self.update_poster()
+
+    def set_selected(self, selected):
+        if selected:
+            self.setStyleSheet("background-color: #444; border: 2px solid #0078D7; border-radius: 10px;")
+        else:
+            self.setStyleSheet("background-color: #333; border: 2px solid #555; border-radius: 10px;")

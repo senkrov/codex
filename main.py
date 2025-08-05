@@ -9,7 +9,7 @@ from PyQt6.QtGui import QPixmap, QFont
 from functools import partial
 from scanner import scan_media
 from ui.widgets import MediaCard
-from ui.show_widgets import ShowCard, SeasonCard
+from ui.show_widgets import ShowCard, SeasonCard, PodcastCard
 from ui.episode_widgets import EpisodeWidget
 from ui.category_widgets import ClickableCategoryCard
 from ui.main_view import MainView
@@ -33,9 +33,11 @@ class Codex(QWidget):
         self.show_cards = []
         self.season_cards = []
         self.episode_widgets = []
+        self.podcast_cards = []
         self.current_show_index = -1
         self.current_row = 0
         self.current_col = 0
+        self.last_active_media_grid = None
         self.threadpool = QThreadPool()
         self.pixmap_cache = {}
         self.worker_signals = WorkerSignals()
@@ -95,7 +97,9 @@ class Codex(QWidget):
         
         # Podcasts Grid View
         self.podcasts_grid_view = QWidget()
-        self.podcasts_layout = QGridLayout(self.podcasts_grid_view)
+        self.podcasts_layout = QGridLayout()
+        self.podcasts_grid_view.setLayout(self.podcasts_layout)
+        self.podcasts_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.podcasts_scroll_area = QScrollArea()
         self.podcasts_scroll_area.setWidgetResizable(True)
         self.podcasts_scroll_area.setWidget(self.podcasts_grid_view)
@@ -202,11 +206,29 @@ class Codex(QWidget):
 
         row, col = 0, 0
         for i, podcast in enumerate(self.podcasts):
-            card = MediaCard(podcast['title'], None, podcast.get('poster_path'), self.pixmap_cache) # No year for podcasts
-            self.podcasts_layout.addWidget(card, row, col)
+            card = PodcastCard(podcast, self.pixmap_cache)
+            self.podcasts_layout.addWidget(card, row + 1, col + 1)
             self.podcast_cards.append(card)
             col += 1
             if col > 3: col = 0; row += 1
+
+        # Add stretch to center the content
+        self.podcasts_layout.setColumnStretch(0, 1)
+        self.podcasts_layout.setColumnStretch(5, 1)
+        self.podcasts_layout.setRowStretch(0, 1)
+        self.podcasts_layout.setRowStretch(row + 2, 1)
+
+        # Add stretch to center the content
+        self.podcasts_layout.setColumnStretch(0, 1)
+        self.podcasts_layout.setColumnStretch(4, 1) # Add a column stretch after the 4 columns of cards
+        self.podcasts_layout.setRowStretch(0, 1)
+        self.podcasts_layout.setRowStretch(row + 1, 1) # Add a row stretch after the last row of cards
+
+        # Add stretch to center the content
+        self.podcasts_layout.setColumnStretch(0, 1)
+        self.podcasts_layout.setColumnStretch(4, 1) # Add a column stretch after the 4 columns of cards
+        self.podcasts_layout.setRowStretch(0, 1)
+        self.podcasts_layout.setRowStretch(row + 1, 1) # Add a row stretch after the last row of cards
 
         self.current_row = 0
         self.current_col = 0
@@ -237,6 +259,7 @@ class Codex(QWidget):
         self.pixmap_cache[poster_path] = pixmap
 
     def show_media_grid(self, category_type):
+        self.last_active_media_grid = category_type
         self.current_row = 0
         self.current_col = 0
         if category_type == "movies":
@@ -266,6 +289,40 @@ class Codex(QWidget):
         self.current_col = 0
         self.update_selection()
         self.update_season_card_positions()
+
+    def show_podcast_episode_view(self, podcast_index):
+        self.episode_scene.clear()
+        self.episode_cards = []
+
+        podcast = self.podcasts[podcast_index]
+        
+        for episode_data in podcast.get('episodes', []):
+            card = AnimatedEpisodeCard(episode_data, pixmap_cache=self.pixmap_cache)
+            self.episode_scene.addItem(card)
+            self.episode_cards.append(card)
+
+        self.stack.setCurrentWidget(self.episode_view_container)
+        self.current_row = 0
+        self.current_col = 0 # Ensure first card is selected
+        self.episode_view.horizontalScrollBar().setValue(0) # Reset scrollbar to left
+        QTimer.singleShot(100, self.update_episode_card_positions) # Delay positioning with 100ms
+
+    def show_podcast_episode_view(self, podcast_index):
+        self.episode_scene.clear()
+        self.episode_cards = []
+
+        podcast = self.podcasts[podcast_index]
+        
+        for episode_data in podcast.get('episodes', []):
+            card = AnimatedEpisodeCard(episode_data, pixmap_cache=self.pixmap_cache)
+            self.episode_scene.addItem(card)
+            self.episode_cards.append(card)
+
+        self.stack.setCurrentWidget(self.episode_view_container)
+        self.current_row = 0
+        self.current_col = 0 # Ensure first card is selected
+        self.episode_view.horizontalScrollBar().setValue(0) # Reset scrollbar to left
+        QTimer.singleShot(100, self.update_episode_card_positions) # Delay positioning with 100ms
 
     def show_episode_view(self, season_index):
         self.episode_scene.clear()
@@ -423,9 +480,11 @@ class Codex(QWidget):
         elif key == Qt.Key.Key_H:
             back_function = self.back_navigation_map.get(current_widget)
             if back_function:
-                # For episode view, update the partial with the correct current_show_index
                 if current_widget == self.episode_view_container:
-                    back_function = partial(self.show_season_view, self.current_show_index)
+                    if self.last_active_media_grid == "shows":
+                        back_function = partial(self.show_season_view, self.current_show_index)
+                    elif self.last_active_media_grid == "podcasts":
+                        back_function = partial(self.show_media_grid, "podcasts")
                 back_function()
             return
 
@@ -471,6 +530,18 @@ class Codex(QWidget):
                 index = self.current_row * 4 + self.current_col
                 if 0 <= index < len(self.show_cards):
                     self.show_season_view(index)
+            elif current_widget == self.podcasts_scroll_area:
+                index = self.current_row * 4 + self.current_col
+                if 0 <= index < len(self.podcast_cards):
+                    self.show_podcast_episode_view(index)
+            elif current_widget == self.shows_scroll_area:
+                index = self.current_row * 4 + self.current_col
+                if 0 <= index < len(self.show_cards):
+                    self.show_season_view(index)
+            elif current_widget == self.podcasts_scroll_area:
+                index = self.current_row * 4 + self.current_col
+                if 0 <= index < len(self.podcast_cards):
+                    self.show_podcast_episode_view(index)
             elif current_widget == self.category_view:
                 if self.current_col == 0:
                     self.show_media_grid("movies")
@@ -496,9 +567,12 @@ class Codex(QWidget):
             # This logic is now handled by update_season_card_positions
             return
 
-        for card_list in [self.movie_cards, self.show_cards, self.category_view.cards]:
+        for card_list in [self.movie_cards, self.show_cards, self.podcast_cards, self.category_view.cards]:
             for card in card_list:
-                card.setStyleSheet("")
+                if isinstance(card, ClickableCategoryCard):
+                    card.media_card.setStyleSheet("")
+                else:
+                    card.setStyleSheet("")
 
         if current_widget == self.movies_scroll_area:
             cards = self.movie_cards
@@ -506,6 +580,9 @@ class Codex(QWidget):
         elif current_widget == self.shows_scroll_area:
             cards = self.show_cards
             layout = self.shows_layout
+        elif current_widget == self.podcasts_scroll_area:
+            cards = self.podcast_cards
+            layout = self.podcasts_layout
         elif current_widget == self.category_view:
             cards = self.category_view.cards
             layout = self.category_view.layout()
@@ -517,7 +594,10 @@ class Codex(QWidget):
         index = self.current_row * 4 + self.current_col
         if 0 <= index < len(cards):
             card = cards[index]
-            card.setStyleSheet("border: 2px solid #0078D7;")
+            if isinstance(card, ClickableCategoryCard):
+                card.media_card.setStyleSheet("border: 2px solid #0078D7;")
+            else:
+                card.setStyleSheet("border: 2px solid #0078D7;")
 
 def main():
     app = QApplication(sys.argv)

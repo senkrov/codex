@@ -1,43 +1,32 @@
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout
+from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QGraphicsProxyWidget
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QPointF
+from ui.widgets import MediaCard
 
-class ClickableCategoryCard(QWidget):
+class ClickableCategoryCard(QGraphicsProxyWidget):
     clicked = pyqtSignal(str)
 
-    def __init__(self, title, category_type, parent=None):
+    def __init__(self, title, category_type, poster_path=None, parent=None):
         super().__init__(parent)
         self.title = title
-        self.category_type = category_type # 'movies' or 'shows'
-        self.initUI()
-
-    def initUI(self):
-        self.setFixedSize(200, 200) # Fixed size for category cards
-        self.setStyleSheet("background-color: #333; border: 2px solid #555; border-radius: 10px;")
-
-        layout = QVBoxLayout()
-        self.setLayout(layout)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.icon_label = QLabel()
-        # Placeholder icon, could be replaced with actual icons later
-        placeholder = QPixmap(100, 100)
-        placeholder.fill(Qt.GlobalColor.darkGray)
-        self.icon_label.setPixmap(placeholder)
-        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.icon_label)
-
-        self.title_label = QLabel(self.title)
-        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.title_label.setStyleSheet("color: white; font-size: 18px; font-weight: bold;")
-        layout.addWidget(self.title_label)
+        self.category_type = category_type
+        
+        self.media_card = MediaCard(title=title, poster_path=poster_path, year=None)
+        self.setWidget(self.media_card)
+        
+        self.setCacheMode(self.CacheMode.DeviceCoordinateCache)
+        self.setAcceptHoverEvents(False) # Disable hover events
 
     def mousePressEvent(self, event):
         self.clicked.emit(self.category_type)
-        super().mousePressEvent(event)
+        # Pass event to internal widget to ensure it receives the event
+        self.media_card.mousePressEvent(event)
 
-    def enterEvent(self, event):
-        self.setStyleSheet("background-color: #444; border: 2px solid red; border-radius: 10px;")
+    def set_selected(self, selected):
+        self.media_card.set_selected(selected)
 
-    def leaveEvent(self, event):
-        self.setStyleSheet("background-color: #333; border: 2px solid #555; border-radius: 10px;")
+    def set_properties_instantly(self, pos, scale, opacity, rotation):
+        self.setPos(pos)
+        self.setScale(scale)
+        self.setOpacity(opacity)
+        self.setRotation(rotation)
